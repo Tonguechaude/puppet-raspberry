@@ -51,54 +51,78 @@ file { '/etc/letsencrypt/ssl-dhparams.pem':
 
 # Configuration de Fail2ban
 class { 'fail2ban':
-  ensure => present,
+  package_ensure => 'latest',
 }
 
 # Configuration de Prometheus
-class { 'prometheus':
-  ensure => present,
-}
-
-# Configuration du serveur Prometheus
 class { 'prometheus::server':
-  ensure => present,
-  listen_address => '0.0.0.0:9090'
+  version        => '2.52.0',
+  alerts         => {
+    'groups' => [
+      {
+        'name'  => 'alert.rules',
+        'rules' => [
+          {
+            'alert'       => 'InstanceDown',
+            'expr'        => 'up == 0',
+            'for'         => '5m',
+            'labels'      => {
+              'severity' => 'page',
+            },
+            'annotations' => {
+              'summary'     => 'Instance {{ $labels.instance }} down',
+              'description' => '{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 5 minutes.'
+            }
+          },
+        ],
+      },
+    ],
+  },
+  scrape_configs => [
+    {
+      'job_name'        => 'prometheus',
+      'scrape_interval' => '10s',
+      'scrape_timeout'  => '10s',
+      'static_configs'  => [
+        {
+          'targets' => [ 'localhost:9090' ],
+          'labels'  => {
+            'alias' => 'Prometheus',
+          }
+        }
+      ],
+    },
+  ],
 }
 
 # Configuration de Grafana
-class { 'grafana': 
-  ensure => present,
+class { 'grafana':
   cfg => {
+    app_mode => 'production',
     server => {
       http_port => 3000,
     },
   },
+  provisioning_datasources => {
+    apiVersion  => 1,
+    datasources => [
+      {
+        name      => 'Prometheus',
+        type      => 'prometheus',
+        access    => 'proxy',
+        url       => 'https://tonguechaude.fr:9090/prometheus',
+        isDefault => true,
+      },
+    ],
+  }
 }
 
 # Configuration d'un utilisateur et d'un dashboard par défaut dans Grafana
-grafana::user { 'admin':
-  ensure => present,
-  password => 'supersecret',
-  full_name => 'Tongue chaude',
-  email => 'evan.challias@tonguechaude.fr',
+grafana_team { 'tongue':
+  ensure           => 'present',
+  grafana_url      => 'https://tonguechaude.fr:3000',
+  grafana_user     => 'admin',
+  grafana_password => 'supersecret',
+  home_dashboard   => 'Tongue_board',
+  organization     => 'tonguechaude.fr',
 }
-
-grafana::dashboard { 'tonguechaude_dashboard':
-  ensure => present,
-  content => '{
-    "title": "Tonguechaude Dashboard",
-    "panels": [
-      {
-        "type": "graph",
-        "title": "Tongue chaude graph",
-        "targets": [
-          {
-            "expr": "up",
-            "format": "time_series"
-          }
-      	]
-      }
-    ]
-  }',
-}
-
